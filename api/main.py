@@ -78,9 +78,10 @@ async def latency(query: Query):
 
     # ✅ Include CORS headers in the response
     return JSONResponse(
-        content=response,
-        headers={"Access-Control-Allow-Origin": "*"}
-    )
+    content={"regions": response},
+    headers={"Access-Control-Allow-Origin": "*"}
+)
+
 
 # -------------------------------------------------------------
 # Local testing (won’t run on Vercel)
