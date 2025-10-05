@@ -4,25 +4,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import numpy as np
 import os, json
+from decimal import Decimal, ROUND_HALF_UP
 
-# -------------------------------------------------------------
-# Create FastAPI app
-# -------------------------------------------------------------
 app = FastAPI()
 
-# ✅ Enable CORS for all origins and methods
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],      # Allows all origins (your dashboard, browser, etc.)
-    allow_methods=["*"],      # Allow all HTTP methods
-    allow_headers=["*"],      # Allow all custom headers
-    expose_headers=["*"],     # Expose all headers in browser response
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
 )
 
-# ✅ Universal handler for CORS preflight (OPTIONS requests)
+# Handle preflight requests
 @app.options("/{full_path:path}")
 async def preflight_handler(request: Request, full_path: str):
-    """Handles any CORS preflight request (required by browsers)."""
     return JSONResponse(
         content={},
         headers={
@@ -32,24 +29,21 @@ async def preflight_handler(request: Request, full_path: str):
         },
     )
 
-# -------------------------------------------------------------
 # Load telemetry data
-# -------------------------------------------------------------
 file_path = os.path.join(os.path.dirname(__file__), "q-vercel-latency.json")
-
 with open(file_path, "r") as f:
     telemetry_data = json.load(f)
 
-# -------------------------------------------------------------
-# Define request body schema
-# -------------------------------------------------------------
+# Request model
 class Query(BaseModel):
     regions: list[str]
     threshold_ms: int
 
-# -------------------------------------------------------------
-# Define POST endpoint
-# -------------------------------------------------------------
+# Helper: Round precisely to 2 decimal places (e.g., 165.05)
+def precise_round(value):
+    return float(Decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+# Endpoint
 @app.post("/api/latency")
 async def latency(query: Query):
     regions = query.regions
@@ -70,22 +64,16 @@ async def latency(query: Query):
         breaches = sum(1 for l in latencies if l > threshold)
 
         response[region] = {
-            "avg_latency_ms": round(float(avg_latency), 2),
-            "p95_latency_ms": round(float(p95_latency), 2),
-            "average_uptime_pct": round(float(avg_uptime), 2),
+            "avg_latency_ms": precise_round(avg_latency),
+            "p95_latency_ms": precise_round(p95_latency),
+            "average_uptime_pct": precise_round(avg_uptime),
             "breaches": breaches,
         }
 
-    # ✅ Include CORS headers in the response
-    return JSONResponse(
-    content={"regions": response},
-    headers={"Access-Control-Allow-Origin": "*"}
-)
+    return JSONResponse(content={"regions": response},
+                        headers={"Access-Control-Allow-Origin": "*"})
 
-
-# -------------------------------------------------------------
-# Local testing (won’t run on Vercel)
-# -------------------------------------------------------------
+# Local test
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
