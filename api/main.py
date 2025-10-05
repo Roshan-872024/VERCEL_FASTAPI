@@ -2,12 +2,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import os, json, math
 from decimal import Decimal, ROUND_HALF_UP
+import os, json, math
 
 app = FastAPI()
 
-# ✅ Enable CORS for all origins
+# Enable full CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,7 +18,7 @@ app.add_middleware(
 
 @app.options("/{full_path:path}")
 async def preflight_handler(request: Request, full_path: str):
-    """Handles CORS preflight (OPTIONS) requests."""
+    """Handles preflight OPTIONS requests for CORS."""
     return JSONResponse(
         content={},
         headers={
@@ -28,7 +28,7 @@ async def preflight_handler(request: Request, full_path: str):
         },
     )
 
-# Load telemetry data
+# Load telemetry JSON file
 file_path = os.path.join(os.path.dirname(__file__), "q-vercel-latency.json")
 with open(file_path, "r") as f:
     telemetry_data = json.load(f)
@@ -37,10 +37,8 @@ class Query(BaseModel):
     regions: list[str]
     threshold_ms: int
 
-# ✅ Linear interpolation percentile (Excel-style)
+# Linear interpolation (Excel-style percentile)
 def percentile_linear(data, percentile):
-    if not data:
-        return None
     data_sorted = sorted(data)
     N = len(data_sorted)
     if N == 1:
@@ -61,24 +59,26 @@ async def latency(query: Query):
         if not entries:
             continue
 
-        latencies = [float(e["latency_ms"]) for e in entries]
-        uptimes = [float(e["uptime_pct"]) for e in entries]
+        latencies = [Decimal(str(e["latency_ms"])) for e in entries]
+        uptimes = [Decimal(str(e["uptime_pct"])) for e in entries]
 
-        # ✅ avg_latency: normal mean rounded to 2 decimals
-        avg_latency = round(sum(latencies) / len(latencies), 2)
+        # ✅ Use Decimal for exact rounding of mean and percentile
+        avg_latency_val = sum(latencies) / Decimal(len(latencies))
+        avg_latency = avg_latency_val.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-        # ✅ p95_latency: linear interpolation + Decimal rounding
-        p95_raw = percentile_linear(latencies, 95)
-        p95_latency = float(Decimal(str(p95_raw)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        p95_raw = percentile_linear([float(l) for l in latencies], 95)
+        p95_latency = Decimal(str(p95_raw)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-        avg_uptime = round(sum(uptimes) / len(uptimes), 2)
-        breaches = sum(1 for l in latencies if l > query.threshold_ms)
+        avg_uptime_val = sum(uptimes) / Decimal(len(uptimes))
+        avg_uptime = avg_uptime_val.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        breaches = sum(1 for l in latencies if l > Decimal(query.threshold_ms))
 
         response[region] = {
-            "avg_latency_ms": avg_latency,
-            "p95_latency_ms": p95_latency,
-            "average_uptime_pct": avg_uptime,
-            "breaches": breaches,
+            "avg_latency_ms": float(avg_latency),
+            "p95_latency_ms": float(p95_latency),
+            "average_uptime_pct": float(avg_uptime),
+            "breaches": int(breaches),
         }
 
     return JSONResponse(
