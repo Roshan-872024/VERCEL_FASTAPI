@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from decimal import Decimal, ROUND_HALF_UP
 import os, json, math
 
 # -------------------------------------------------------------
@@ -46,7 +47,7 @@ class Query(BaseModel):
     threshold_ms: int
 
 # -------------------------------------------------------------
-# Helper: manual 95th percentile (nearest-rank)
+# Helper: manual 95th percentile (nearest rank)
 # -------------------------------------------------------------
 def percentile_nearest_rank(data, percentile):
     if not data:
@@ -67,14 +68,21 @@ async def latency(query: Query):
         if not entries:
             continue
 
-        latencies = [float(e["latency_ms"]) for e in entries]
-        uptimes = [float(e["uptime_pct"]) for e in entries]
+        latencies = [Decimal(str(e["latency_ms"])) for e in entries]
+        uptimes = [Decimal(str(e["uptime_pct"])) for e in entries]
 
-        # Compute metrics
-        avg_latency = round(sum(latencies) / len(latencies), 2)
-        p95_latency = round(percentile_nearest_rank(latencies, 95), 2)
-        avg_uptime = round(sum(uptimes) / len(uptimes), 2)
-        breaches = sum(1 for l in latencies if l > query.threshold_ms)
+        # Average latency
+        avg_latency = sum(latencies) / Decimal(len(latencies))
+
+        # ✅ 95th percentile (nearest rank)
+        p95_latency = percentile_nearest_rank(latencies, 95)
+
+        # Round using Decimal for exact 2-decimal precision
+        avg_latency = avg_latency.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        p95_latency = Decimal(str(p95_latency)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        avg_uptime = (sum(uptimes) / Decimal(len(uptimes))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        breaches = sum(1 for l in latencies if l > Decimal(query.threshold_ms))
 
         response[region] = {
             "avg_latency_ms": float(avg_latency),
@@ -91,7 +99,7 @@ async def latency(query: Query):
     )
 
 # -------------------------------------------------------------
-# Local testing
+# Local testing (won’t run on Vercel)
 # -------------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
