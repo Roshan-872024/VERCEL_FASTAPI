@@ -2,8 +2,9 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import os, json
 from decimal import Decimal, ROUND_HALF_UP
-import os, json, math
+import math
 
 # -------------------------------------------------------------
 # Initialize FastAPI app
@@ -47,14 +48,24 @@ class Query(BaseModel):
     threshold_ms: int
 
 # -------------------------------------------------------------
-# Helper: manual 95th percentile (nearest rank)
+# Manual linear interpolation percentile
 # -------------------------------------------------------------
-def percentile_nearest_rank(data, percentile):
+def percentile_linear(data, percentile):
+    """Manual linear interpolation percentile implementation."""
     if not data:
         return None
     data_sorted = sorted(data)
-    k = math.ceil((percentile / 100) * len(data_sorted))
-    return data_sorted[min(k - 1, len(data_sorted) - 1)]
+    N = len(data_sorted)
+    if N == 1:
+        return data_sorted[0]
+    rank = (percentile / 100) * (N - 1)
+    lower = math.floor(rank)
+    upper = math.ceil(rank)
+    if lower == upper:
+        return data_sorted[int(rank)]
+    d0 = data_sorted[lower] * (upper - rank)
+    d1 = data_sorted[upper] * (rank - lower)
+    return d0 + d1
 
 # -------------------------------------------------------------
 # POST endpoint
@@ -68,27 +79,22 @@ async def latency(query: Query):
         if not entries:
             continue
 
-        latencies = [Decimal(str(e["latency_ms"])) for e in entries]
-        uptimes = [Decimal(str(e["uptime_pct"])) for e in entries]
+        latencies = [float(e["latency_ms"]) for e in entries]
+        uptimes = [float(e["uptime_pct"]) for e in entries]
 
-        # Average latency
-        avg_latency = sum(latencies) / Decimal(len(latencies))
+        # Average latency (mean)
+        avg_latency = round(sum(latencies) / len(latencies), 2)
 
-        # ✅ 95th percentile (nearest rank)
-        p95_latency = percentile_nearest_rank(latencies, 95)
+        # ✅ Linear interpolation percentile
+        p95_latency = percentile_linear(latencies, 95)
+        p95_latency = float(Decimal(str(p95_latency)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
-        # Round using Decimal for exact 2-decimal precision
-        avg_latency = avg_latency.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        p95_latency = Decimal(str(p95_latency)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        avg_uptime = (sum(uptimes) / Decimal(len(uptimes))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-        breaches = sum(1 for l in latencies if l > Decimal(query.threshold_ms))
+        avg_uptime = round(sum(uptimes) / len(uptimes), 2)
+        breaches = sum(1 for l in latencies if l > query.threshold_ms)
 
         response[region] = {
             "avg_latency_ms": float(avg_latency),
-            "avg_latency": float(avg_latency),
             "p95_latency_ms": float(p95_latency),
-            "p95_latency": float(p95_latency),
             "average_uptime_pct": float(avg_uptime),
             "breaches": int(breaches),
         }
