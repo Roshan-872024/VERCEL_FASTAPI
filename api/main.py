@@ -16,6 +16,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ✅ Load telemetry data from local file in the same directory
 file_path = os.path.join(os.path.dirname(__file__), "q-vercel-latency.json")
 
 with open(file_path, "r") as f:
@@ -52,5 +53,5 @@ async def latency(query: Query):
 
     return JSONResponse(response)
 
-# 👇 This is the key part for Vercel
+# ✅ Needed for Vercel
 handler = Mangum(app)
