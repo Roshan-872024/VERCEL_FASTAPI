@@ -4,11 +4,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import numpy as np
 import os, json
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, getcontext
 
+# -------------------------------------------------------------
+# Create FastAPI app
+# -------------------------------------------------------------
 app = FastAPI()
 
-# Enable CORS
+# Enable CORS for all origins and methods
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -29,51 +32,58 @@ async def preflight_handler(request: Request, full_path: str):
         },
     )
 
+# -------------------------------------------------------------
 # Load telemetry data
+# -------------------------------------------------------------
 file_path = os.path.join(os.path.dirname(__file__), "q-vercel-latency.json")
 with open(file_path, "r") as f:
     telemetry_data = json.load(f)
 
-# Request model
+# -------------------------------------------------------------
+# Define request body schema
+# -------------------------------------------------------------
 class Query(BaseModel):
     regions: list[str]
     threshold_ms: int
 
-# Helper: Round precisely to 2 decimal places (e.g., 165.05)
-def precise_round(value):
-    return float(Decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+# -------------------------------------------------------------
+# Helper: exact rounding (2 decimal places, round-half-up)
+# -------------------------------------------------------------
+getcontext().prec = 6  # enough precision
+def precise(value):
+    return float(Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
+# -------------------------------------------------------------
 # Endpoint
+# -------------------------------------------------------------
 @app.post("/api/latency")
 async def latency(query: Query):
-    regions = query.regions
-    threshold = query.threshold_ms
     response = {}
-
-    for region in regions:
+    for region in query.regions:
         entries = [e for e in telemetry_data if e["region"] == region]
         if not entries:
             continue
 
-        latencies = [e["latency_ms"] for e in entries]
-        uptimes = [e["uptime_pct"] for e in entries]
+        latencies = np.array([e["latency_ms"] for e in entries], dtype=float)
+        uptimes = np.array([e["uptime_pct"] for e in entries], dtype=float)
 
-        avg_latency = np.mean(latencies)
-        p95_latency = np.percentile(latencies, 95)
-        avg_uptime = np.mean(uptimes)
-        breaches = sum(1 for l in latencies if l > threshold)
+        avg_latency = precise(np.mean(latencies))
+        p95_latency = precise(np.percentile(latencies, 95))
+        avg_uptime = precise(np.mean(uptimes))
+        breaches = int(np.sum(latencies > query.threshold_ms))
 
         response[region] = {
-            "avg_latency_ms": precise_round(avg_latency),
-            "p95_latency_ms": precise_round(p95_latency),
-            "average_uptime_pct": precise_round(avg_uptime),
+            "avg_latency_ms": avg_latency,
+            "p95_latency_ms": p95_latency,
+            "average_uptime_pct": avg_uptime,
             "breaches": breaches,
         }
 
-    return JSONResponse(content={"regions": response},
-                        headers={"Access-Control-Allow-Origin": "*"})
+    return JSONResponse(content=response, headers={"Access-Control-Allow-Origin": "*"})
 
-# Local test
+# -------------------------------------------------------------
+# Local test (optional)
+# -------------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
