@@ -13,10 +13,10 @@ app = FastAPI()
 # ✅ Enable CORS for all origins and methods
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],            # Allow all origins
-    allow_credentials=True,
-    allow_methods=["*"],            # Allow GET, POST, OPTIONS, etc.
-    allow_headers=["*"],            # Allow all headers
+    allow_origins=["*"],      # Allows all origins (your dashboard, browser, etc.)
+    allow_methods=["*"],      # Allow all HTTP methods
+    allow_headers=["*"],      # Allow all custom headers
+    expose_headers=["*"],     # Expose all headers in browser response
 )
 
 # ✅ Universal handler for CORS preflight (OPTIONS requests)
