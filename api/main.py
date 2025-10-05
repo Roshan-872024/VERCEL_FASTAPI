@@ -11,7 +11,7 @@ from decimal import Decimal, ROUND_HALF_UP, getcontext
 # -------------------------------------------------------------
 app = FastAPI()
 
-# Enable CORS for all origins and methods
+# ✅ Enable CORS for all origins and methods
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,9 +20,10 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-# Handle preflight requests
+# ✅ Universal handler for CORS preflight (OPTIONS requests)
 @app.options("/{full_path:path}")
 async def preflight_handler(request: Request, full_path: str):
+    """Handles any CORS preflight request (required by browsers)."""
     return JSONResponse(
         content={},
         headers={
@@ -49,12 +50,12 @@ class Query(BaseModel):
 # -------------------------------------------------------------
 # Helper: exact rounding (2 decimal places, round-half-up)
 # -------------------------------------------------------------
-getcontext().prec = 6  # enough precision
+getcontext().prec = 6  # Enough precision
 def precise(value):
     return float(Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 # -------------------------------------------------------------
-# Endpoint
+# Define POST endpoint
 # -------------------------------------------------------------
 @app.post("/api/latency")
 async def latency(query: Query):
@@ -79,10 +80,14 @@ async def latency(query: Query):
             "breaches": breaches,
         }
 
-    return JSONResponse(content=response, headers={"Access-Control-Allow-Origin": "*"})
+    # ✅ Return with "regions" wrapper (as you wanted)
+    return JSONResponse(
+        content={"regions": response},
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
 
 # -------------------------------------------------------------
-# Local test (optional)
+# Local testing (won’t run on Vercel)
 # -------------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
