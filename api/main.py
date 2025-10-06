@@ -75,9 +75,9 @@ async def latency(query: Query):
         breaches = sum(1 for l in latencies if l > Decimal(query.threshold_ms))
 
         response[region] = {
-            "avg_latency_ms": float(avg_latency),
-            "p95_latency_ms": float(p95_latency),
-            "average_uptime_pct": float(avg_uptime),
+            "avg_latency": float(avg_latency),
+            "p95_latency": float(p95_latency),
+            "average_uptime": float(avg_uptime),
             "breaches": int(breaches),
         }
 
