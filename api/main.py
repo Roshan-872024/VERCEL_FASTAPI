@@ -77,7 +77,7 @@ async def latency(query: Query):
         response[region] = {
             "avg_latency": float(avg_latency),
             "p95_latency": float(p95_latency),
-            "average_uptime": float(avg_uptime),
+            "avg_uptime": float(avg_uptime),
             "breaches": int(breaches),
         }
 
